@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "src/Conversion/ONNXToTOSA/ONNXToTOSACommon.hpp"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
 
@@ -27,7 +28,7 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXReduceMeanOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
-  populateLoweringONNXGemmOpToTOSAPattern(target, patterns, typeConverter, ctx);
+  // populateLoweringONNXGemmOpToTOSAPattern(target, patterns, typeConverter, ctx);
   populateLoweringONNXSoftmaxOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
   populateLoweringONNXConvOpToTOSAPattern(target, patterns, typeConverter, ctx);
@@ -43,12 +44,39 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
       target, patterns, typeConverter, ctx);
   populateLoweringONNXResizeOpToTOSAPattern(
       target, patterns, typeConverter, ctx);
+      
+  //Custom
+
+  populateLoweringONNXFlattenOpToTOSAPattern(
+    target, patterns, typeConverter, ctx);
+
+  populateLoweringONNXQLinearConvOpToTOSAPattern(
+    target, patterns, typeConverter, ctx);
+
+  populateLoweringONNXCustomOpToTOSAPattern(
+    target, patterns, typeConverter, ctx);
+
+  populateLoweringONNXGemmOpToTOSAPattern(
+    target, patterns, typeConverter, ctx);
+
+  populateLoweringONNXReluOpToTOSAPattern(
+    target, patterns, typeConverter, ctx);
+    
+  //populateLoweringONNXQuantizeLinearOpToTOSAPattern(target, patterns, typeConverter, ctx);
+
+
+
 }
 
 // Performs lowering to TOSA dialect
 struct FrontendToTosaLoweringPass
     : public PassWrapper<FrontendToTosaLoweringPass, OperationPass<ModuleOp>> {
   StringRef getArgument() const override { return "convert-onnx-to-tosa"; }
+
+  Option<bool> useUnsigned{
+    *this, "use-unsigned",
+    llvm::cl::desc("Treat 8-bit tensors as unsigned"),
+    llvm::cl::init(false)};
 
   StringRef getDescription() const override {
     return "Lower frontend ops to TOSA dialect.";
@@ -93,6 +121,63 @@ void FrontendToTosaLoweringPass::runOnOperation() {
   if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
     signalPassFailure();
   }
+
+  if(true){
+    OpBuilder builder(module.getContext());
+    for (auto func : llvm::make_early_inc_range(module.getOps<func::FuncOp>())){
+      if (func.getName() != "main_graph") continue;
+
+      if (func.getNumArguments() != 1 || func.getFunctionType().getNumResults() != 1) continue;
+
+      auto oldtype = func.getFunctionType();
+      auto in = llvm::to_vector<4>(oldtype.getInputs());
+      auto out = llvm::to_vector<4>(oldtype.getResults());
+      auto inType = cast<RankedTensorType>(in[0]);
+      auto outType = cast<RankedTensorType>(out[0]);
+      auto inShape = inType.getShape();
+      auto outShape = outType.getShape();
+
+      auto newinput = RankedTensorType::get(inShape, IntegerType::get(context,8));
+      auto newoutput = RankedTensorType::get(outShape,IntegerType::get(context,8));
+      
+
+      in[0] = newinput;
+      out[0] = newoutput;
+      auto newFuncType = mlir::FunctionType::get(func.getContext(), in, out);
+      func.setType(newFuncType);
+
+      Block &entry = func.getBody().front();
+      BlockArgument arg = entry.getArgument(0);
+      arg.setType(newinput);
+    
+      SmallVector<Operation*> toErase;
+      for (Operation &op : llvm::make_early_inc_range(entry)){
+        if (ONNXQuantizeLinearOp qop = dyn_cast<ONNXQuantizeLinearOp>(op))  {
+          auto opers = qop.getOperands();
+          for (Value ii : opers){
+            if(isa<BlockArgument>(ii)){
+              qop.getResult().replaceAllUsesWith(ii);
+              qop.erase();
+            }
+          }
+        }
+        if (ONNXDequantizeLinearOp dqop = dyn_cast<ONNXDequantizeLinearOp>(op)){
+          auto opers = dqop.getOperands();
+          for (Value ii : opers){
+            if(!isa<mlir::tosa::ConstOp>(ii.getDefiningOp())){
+              dqop.getResult().replaceAllUsesWith(ii);
+              dqop.erase();
+            }
+          }    
+        }
+        if(op.getResults().use_empty() && !isa<func::ReturnOp>(op))
+          op.erase();        
+      }
+    }
+  }
+  module.walk([&](ONNXEntryPointOp ep) {
+    ep.erase();
+  });
 }
 
 std::unique_ptr<Pass> createConvertONNXToTOSAPass() {

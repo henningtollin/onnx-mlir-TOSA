@@ -175,7 +175,7 @@ void populateLoweringONNXElementwiseOpToTOSAPattern(ConversionTarget &target,
   patterns.insert<ONNXElementwiseUnaryOpLoweringToTOSA<ONNXNegOp>,
       ONNXBinaryElementwiseOpLoweringToTOSA<ONNXAddOp, mlir::tosa::AddOp>,
       ONNXBinaryElementwiseOpLoweringToTOSA<ONNXSubOp, mlir::tosa::SubOp>,
-      ONNXFloorOpLoweringToTOSA, ONNXReluOpLoweringToTOSA,
+      ONNXFloorOpLoweringToTOSA, 
       ONNXDivOpLoweringToTOSA>(typeConverter, ctx);
 }
 

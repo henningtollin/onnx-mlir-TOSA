@@ -124,5 +124,24 @@ void populateLoweringONNXReshapeOpToTOSAPattern(mlir::ConversionTarget &,
     mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
 void populateLoweringONNXResizeOpToTOSAPattern(mlir::ConversionTarget &,
     mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+
+// Custom 
+
+void populateLoweringONNXFlattenOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+void populateLoweringONNXQLinearConvOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+void populateLoweringONNXCustomOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+void populateLoweringONNXQuantizeLinearOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+
+void populateLoweringONNXGemmOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+
+void populateLoweringONNXReluOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+
+
 } // namespace onnx_mlir
 #endif
