@@ -182,13 +182,9 @@ struct ONNXConvOpLoweringToTOSA : public OpConversionPattern<ONNXConvOp> {
       // This 'if' will transpose the weights for the conv at compile time and then the transpose can be skipped.
       Value NewTosaConst;
       if (quantized){
-        W.dump();
         mlir::ONNXConstantOp wop = W.getDefiningOp<mlir::ONNXConstantOp>();
-        wop.dump();
         auto weightElements = cast<DenseIntElementsAttr>(wop.getValueAttr());
-        weightElements.dump();
         auto elemtTypes = weightElements.getType();
-        elemtTypes.dump();
         auto elemShapes = elemtTypes.getShape();
         
         auto values = weightElements.getValues<int8_t>();

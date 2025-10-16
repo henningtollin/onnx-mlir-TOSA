@@ -125,9 +125,29 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
         }
 
         if (transB){
-            RankedTensorType transBType = RankedTensorType::get(ArrayRef<int64_t>({BShape[1],BShape[0]}),BType.getElementType());
-            DenseI32ArrayAttr perms = DenseI32ArrayAttr::get(op.getContext(),{1,0});
-            B = rewriter.create<mlir::tosa::TransposeOp>(loc, transBType,B,perms).getResult();
+            mlir::ONNXConstantOp defB;
+            if (((defB = dyn_cast<mlir::ONNXConstantOp>(B.getDefiningOp()))!= NULL) && quantized){
+                auto weightElements = cast<DenseIntElementsAttr>(defB.getValueAttr());
+                auto elemtTypes = weightElements.getType();
+                auto elemShapes = elemtTypes.getShape();
+                auto values = weightElements.getValues<int8_t>();
+                SmallVector<int64_t> dimvals(values.begin(), values.end());
+                int64_t H = dimvals[0], W = dimvals[1];
+                SmallVector<int8_t> neworder;
+                for (int j = 0; j < W; j++){
+                    for (int i = 0; i < H; i++){
+                        int fromind = j * H + i;
+                        neworder.push_back(values[fromind]);
+                    }
+                }
+                auto newshapesW = RankedTensorType::get(ArrayRef<int64_t>({W,H}),elemtTypes.getElementType());
+                auto newWeights = DenseElementsAttr::get(newshapesW, ArrayRef<int8_t>(neworder));
+                B = rewriter.create<mlir::tosa::ConstOp>(loc, newshapesW, newWeights).getResult();
+            } else {
+                RankedTensorType transBType = RankedTensorType::get(ArrayRef<int64_t>({BShape[1],BShape[0]}),BType.getElementType());
+                DenseI32ArrayAttr perms = DenseI32ArrayAttr::get(op.getContext(),{1,0});
+                B = rewriter.create<mlir::tosa::TransposeOp>(loc, transBType,B,perms).getResult();
+            }
             BType = cast<RankedTensorType>(B.getType());
             BShape = BType.getShape();
         }
