@@ -122,7 +122,10 @@ void FrontendToTosaLoweringPass::runOnOperation() {
     signalPassFailure();
   }
 
-  if(true){
+  bool remove_QDQ = true;
+  bool remove_transpose = true;
+
+  if(remove_QDQ){
     OpBuilder builder(module.getContext());
     for (auto func : llvm::make_early_inc_range(module.getOps<func::FuncOp>())){
       if (func.getName() != "main_graph") continue;
@@ -149,6 +152,7 @@ void FrontendToTosaLoweringPass::runOnOperation() {
       Block &entry = func.getBody().front();
       BlockArgument arg = entry.getArgument(0);
       arg.setType(newinput);
+
     
       SmallVector<Operation*> toErase;
       for (Operation &op : llvm::make_early_inc_range(entry)){
@@ -175,10 +179,42 @@ void FrontendToTosaLoweringPass::runOnOperation() {
       }
     }
   }
+  
+  if (remove_transpose){
+    SmallVector<mlir::tosa::TransposeOp> transpose_remove;
+    bool found_first = false;
+    mlir::tosa::TransposeOp first_top;
+    for (auto func : llvm::make_early_inc_range(module.getOps<func::FuncOp>())){
+      Block &entry = func.getBody().front();
+      for (Operation &op : llvm::make_early_inc_range(entry)){
+        if (mlir::tosa::TransposeOp top = dyn_cast<mlir::tosa::TransposeOp>(op)){
+          Value input = top.getInput1();
+          if (isa<BlockArgument>(input)) continue;
+          if (isa<mlir::tosa::ConstOp>(input.getDefiningOp())) continue;
+          if (!found_first) {
+            found_first = true;
+            first_top = top;
+          }
+          else {
+            found_first = false;
+            transpose_remove.push_back(top);
+            transpose_remove.push_back(first_top);
+          }
+        }
+      }
+    }
+    for (mlir::tosa::TransposeOp top : transpose_remove){
+      Value input = top.getInput1();
+      top.replaceAllUsesWith(input);
+      top.erase();
+    }
+  }
+  
   module.walk([&](ONNXEntryPointOp ep) {
     ep.erase();
   });
 }
+
 
 std::unique_ptr<Pass> createConvertONNXToTOSAPass() {
   return std::make_unique<FrontendToTosaLoweringPass>();
