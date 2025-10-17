@@ -38,6 +38,8 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
 
         Location loc = op.getLoc();
 
+
+        // Get all the Inputs and the attributes from the adaptor.
         Value A = adaptor.getA();
         Value B = adaptor.getB();
         Value C = adaptor.getC();
@@ -64,6 +66,7 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
         double sw;
         double so;
 
+        // Check if this is in a QDQ block. If it is create the multiplier and shift for the rescale operator.
         if ((dqX = dyn_cast<ONNXDequantizeLinearOp>(A.getDefiningOp())) 
           && (dqW = dyn_cast<ONNXDequantizeLinearOp>(B.getDefiningOp()))
           && (qO = dyn_cast<ONNXQuantizeLinearOp>(op.getResult().getUsers().begin().getCurrent().getOperand()->getOwner()))){
@@ -109,13 +112,14 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
         auto AShape = AType.getShape();
         auto BShape = BType.getShape();
 
+        // If this is a QDQ block get the bias directly, witout dequantizing it.
         if (quantized) {
             ONNXDequantizeLinearOp deQuantBias = op.getC().getDefiningOp<ONNXDequantizeLinearOp>();
             C = deQuantBias.getX();
-            
             rewriter.eraseOp(deQuantBias);
         }
         
+        // If any of the matrices A or B is known at compile time it is possible to transpose them at compile time.
         if (transA){
             RankedTensorType transAType = RankedTensorType::get(ArrayRef<int64_t>({AShape[1],AShape[0]}),AType.getElementType());
             DenseI32ArrayAttr perms = DenseI32ArrayAttr::get(op.getContext(),{1,0});
@@ -123,15 +127,16 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
             AType = cast<RankedTensorType>(A.getType());
             AShape = AType.getShape();
         }
-
+        
         if (transB){
             mlir::ONNXConstantOp defB;
             if (((defB = dyn_cast<mlir::ONNXConstantOp>(B.getDefiningOp()))!= NULL) && quantized){
                 auto weightElements = cast<DenseIntElementsAttr>(defB.getValueAttr());
                 auto elemtTypes = weightElements.getType();
+                elemtTypes.dump();
                 auto elemShapes = elemtTypes.getShape();
                 auto values = weightElements.getValues<int8_t>();
-                SmallVector<int64_t> dimvals(values.begin(), values.end());
+                SmallVector<int64_t> dimvals(elemShapes.begin(), elemShapes.end());
                 int64_t H = dimvals[0], W = dimvals[1];
                 SmallVector<int8_t> neworder;
                 for (int j = 0; j < W; j++){
@@ -140,10 +145,13 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
                         neworder.push_back(values[fromind]);
                     }
                 }
+                llvm::errs() << static_cast<long long>(W) << static_cast<long long>(H) << "\n";
                 auto newshapesW = RankedTensorType::get(ArrayRef<int64_t>({W,H}),elemtTypes.getElementType());
+                newshapesW.dump();
                 auto newWeights = DenseElementsAttr::get(newshapesW, ArrayRef<int8_t>(neworder));
                 B = rewriter.create<mlir::tosa::ConstOp>(loc, newshapesW, newWeights).getResult();
             } else {
+                llvm::errs() << "Not a constant\n";
                 RankedTensorType transBType = RankedTensorType::get(ArrayRef<int64_t>({BShape[1],BShape[0]}),BType.getElementType());
                 DenseI32ArrayAttr perms = DenseI32ArrayAttr::get(op.getContext(),{1,0});
                 B = rewriter.create<mlir::tosa::TransposeOp>(loc, transBType,B,perms).getResult();
@@ -153,6 +161,7 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
         }
 
 
+        // In TOSA Matmul needs the input Tensors to be rank 3. In onnx they are rank 2. Here a extra dimesion is added.
         Value ATosaShape = mlir::tosa::getTosaConstShape(rewriter,loc,{1,AShape[0],AShape[1]});
         Value BTosaShape = mlir::tosa::getTosaConstShape(rewriter, loc, {1,BShape[0],BShape[1]});
 
@@ -173,6 +182,7 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
         RankedTensorType onnxShape = RankedTensorType::get({outputShape[1],outputShape[2]},cast<RankedTensorType>(output.getType()).getElementType());
         output = rewriter.create<mlir::tosa::ReshapeOp>(loc,onnxShape,output,outputOnnxShape).getResult();
 
+        // If there exist a bias create it as a constant op and then add it to the matmul.
         if(!mlir::isa<NoneType>(C.getType())){
             RankedTensorType CType = cast<RankedTensorType>(C.getType());
             auto CShape = CType.getShape();
@@ -188,6 +198,7 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
             output = rewriter.create<mlir::tosa::AddOp>(loc,cast<RankedTensorType>(output.getType()),output,C).getResult();
         }
 
+        // If the this is in a quantized model rescale it to int8. And remove the quantize and dequantize ops.
         if (quantized){
             bool scale32 = false;
             bool perChannel = false;
