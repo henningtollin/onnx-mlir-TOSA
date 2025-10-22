@@ -26,6 +26,7 @@ add_onnx_mlir_library(OMONNXToTOSA
   Custom/Gemm.cpp
   Custom/MaxPool.cpp
   Custom/Relu.cpp
+  Custom/Sigmoid.cpp
 
   LINK_LIBS PUBLIC
   OMONNXOps

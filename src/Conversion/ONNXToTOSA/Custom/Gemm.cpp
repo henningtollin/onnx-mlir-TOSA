@@ -129,11 +129,11 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
         }
         
         if (transB){
+            // If B is a constant we can traspose it during compile time
             mlir::ONNXConstantOp defB;
-            if (((defB = dyn_cast<mlir::ONNXConstantOp>(B.getDefiningOp()))!= NULL) && quantized){
+            if (((defB = dyn_cast<mlir::ONNXConstantOp>(B.getDefiningOp())) != NULL) && quantized){
                 auto weightElements = cast<DenseIntElementsAttr>(defB.getValueAttr());
                 auto elemtTypes = weightElements.getType();
-                elemtTypes.dump();
                 auto elemShapes = elemtTypes.getShape();
                 auto values = weightElements.getValues<int8_t>();
                 SmallVector<int64_t> dimvals(elemShapes.begin(), elemShapes.end());
@@ -141,17 +141,14 @@ struct ONNXGemmOpLoweringToTOSA : public OpConversionPattern<ONNXGemmOp> {
                 SmallVector<int8_t> neworder;
                 for (int j = 0; j < W; j++){
                     for (int i = 0; i < H; i++){
-                        int fromind = j * H + i;
+                        int fromind = i * W + j;
                         neworder.push_back(values[fromind]);
                     }
                 }
-                llvm::errs() << static_cast<long long>(W) << static_cast<long long>(H) << "\n";
                 auto newshapesW = RankedTensorType::get(ArrayRef<int64_t>({W,H}),elemtTypes.getElementType());
-                newshapesW.dump();
                 auto newWeights = DenseElementsAttr::get(newshapesW, ArrayRef<int8_t>(neworder));
                 B = rewriter.create<mlir::tosa::ConstOp>(loc, newshapesW, newWeights).getResult();
             } else {
-                llvm::errs() << "Not a constant\n";
                 RankedTensorType transBType = RankedTensorType::get(ArrayRef<int64_t>({BShape[1],BShape[0]}),BType.getElementType());
                 DenseI32ArrayAttr perms = DenseI32ArrayAttr::get(op.getContext(),{1,0});
                 B = rewriter.create<mlir::tosa::TransposeOp>(loc, transBType,B,perms).getResult();

@@ -61,6 +61,9 @@ void populateONNXToTOSAConversionPattern(ConversionTarget &target,
 
   populateLoweringONNXReluOpToTOSAPattern(
     target, patterns, typeConverter, ctx);
+
+  populateLoweringONNXSigmoidOpToTOSAPattern(
+      target, patterns, typeConverter, ctx);
     
   //populateLoweringONNXQuantizeLinearOpToTOSAPattern(target, patterns, typeConverter, ctx);
 
