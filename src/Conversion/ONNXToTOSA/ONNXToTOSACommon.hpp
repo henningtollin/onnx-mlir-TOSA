@@ -145,6 +145,9 @@ void populateLoweringONNXReluOpToTOSAPattern(mlir::ConversionTarget &,
 void populateLoweringONNXSigmoidOpToTOSAPattern(mlir::ConversionTarget &,
     mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
 
+void populateLoweringONNXSoftmaxOpToTOSAPattern(mlir::ConversionTarget &,
+    mlir::RewritePatternSet &, mlir::TypeConverter &, mlir::MLIRContext *);
+
 
 } // namespace onnx_mlir
 #endif
